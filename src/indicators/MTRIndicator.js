@@ -6,7 +6,7 @@ export class MTRIndicator {
         this.serenityWindow = options.serenityWindow || 20;
         this.atrWindow = options.atrWindow || 14;
         this.atrPctThreshold = options.atrPctThreshold || 0.0075;
-        this.bandMult = options.bandMult || 2.0;
+        this.bandMult = options.bandMult || 4.0;
         this.stabilityConfirmation = options.stabilityConfirmation || 10;
         this.initialBaseline = options.initialBaseline || null;
     }

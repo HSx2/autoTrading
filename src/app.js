@@ -32,7 +32,7 @@ async function main() {
             serenityWindow: 20,
             atrWindow: 14,
             atrPctThreshold: 0.0075,
-            bandMult: 2.0,
+            bandMult: 4.0,
             stabilityConfirmation: 10
         });
         console.log('✅ MTR indicator calculated\n');

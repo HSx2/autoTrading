@@ -122,15 +122,15 @@ export class TradingStrategy {
             } else {
                 // Inside band: mean-revert using margins
                 if (!this.inPos) {
-                    const crossedUpFromBelow = (prevPrice < buyLvl) && (price >= buyLvl);
-                    if (crossedUpFromBelow) {
+                    // Buy when price reaches or exceeds buy level
+                    if (price >= buyLvl) {
                         sig = 1;
                         this.inPos = true;
                         this.lastTradeIndex = i;
                     }
                 } else {
-                    const crossedDownFromAbove = (prevPrice > sellLvl) && (price <= sellLvl);
-                    if (crossedDownFromAbove) {
+                    // Sell when price reaches or exceeds sell level
+                    if (price >= sellLvl) {
                         sig = -1;
                         this.inPos = false;
                         this.lastTradeIndex = i;
