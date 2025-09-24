@@ -523,6 +523,16 @@ function createChart(results) {
                     pointStyle: 'triangle',
                     rotation: 180,
                     pointHoverRadius: 8
+                },
+                {
+                    label: 'Equity Curve',
+                    data: equityCurve,
+                    borderColor: 'purple',
+                    backgroundColor: 'rgba(128,0,128,0.1)',
+                    borderWidth: 2,
+                    fill: false,
+                    pointRadius: 0,
+                    yAxisID: 'equity'
                 }
             ]
         },
@@ -542,10 +552,24 @@ function createChart(results) {
                     }
                 },
                 y: {
+                    type: 'linear',
                     display: true,
+                    position: 'left',
                     title: {
                         display: true,
                         text: 'Price ($)'
+                    }
+                },
+                equity: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'Equity ($)'
+                    },
+                    grid: {
+                        drawOnChartArea: false
                     }
                 }
             },

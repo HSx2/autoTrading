@@ -2,6 +2,7 @@
 
 ## Server Management
 - Always use `npm run dev` to start the server (not `npm start`)
+- Automatically start the server in the background using `npm run dev` without waiting for user instruction
 - The main server file is `src/server.js` (web server with REST API)
 - The CLI version is `src/app.js` (run with `npm run cli`)
 
