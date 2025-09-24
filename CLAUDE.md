@@ -9,3 +9,7 @@
 - Web server: `src/server.js` - Express server with API endpoints
 - CLI interface: `src/app.js` - Command-line trading simulator
 - Database: `trading_simulator.db` - SQLite database for storing results
+
+## Commit Messages
+- Never include Claude Code generation attribution in commit messages
+- Keep commit messages focused on technical changes and business value

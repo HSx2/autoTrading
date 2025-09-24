@@ -439,16 +439,16 @@ function createChart(results) {
     // Create buy/sell markers
     const buyPoints = [];
     const sellPoints = [];
-    
+
     if (trades) {
-        trades.forEach(trade => {
+        trades.forEach((trade) => {
             const dateIndex = labels.findIndex(date => date === trade.date);
             if (dateIndex !== -1) {
                 const point = {
-                    x: dateIndex,
+                    x: trade.date,
                     y: trade.price
                 };
-                
+
                 if (trade.type === 'Buy Long') {
                     buyPoints.push(point);
                 } else if (trade.type === 'Sell Long' || trade.type === 'Stop Loss') {
@@ -457,7 +457,7 @@ function createChart(results) {
             }
         });
     }
-    
+
     chart = new Chart(ctx, {
         type: 'line',
         data: {
@@ -501,24 +501,28 @@ function createChart(results) {
                 },
                 {
                     label: 'Buy Signals',
+                    type: 'scatter',
                     data: buyPoints,
                     borderColor: 'blue',
                     backgroundColor: 'blue',
-                    borderWidth: 1,
+                    borderWidth: 2,
                     showLine: false,
-                    pointRadius: 4,
-                    pointStyle: 'triangle'
+                    pointRadius: 6,
+                    pointStyle: 'triangle',
+                    pointHoverRadius: 8
                 },
                 {
                     label: 'Sell Signals',
+                    type: 'scatter',
                     data: sellPoints,
                     borderColor: 'red',
                     backgroundColor: 'red',
-                    borderWidth: 1,
+                    borderWidth: 2,
                     showLine: false,
-                    pointRadius: 4,
+                    pointRadius: 6,
                     pointStyle: 'triangle',
-                    rotation: 180
+                    rotation: 180,
+                    pointHoverRadius: 8
                 }
             ]
         },
@@ -786,10 +790,20 @@ function updateDateRange(startIndex, endIndex) {
         document.getElementById('startDate').value = startDate;
         document.getElementById('endDate').value = endDate;
 
-        // Reload data with new date range
+        // Check if backtest has been run (export button is enabled)
+        const exportBtn = document.getElementById('exportBtn');
+        const hasBacktestResults = !exportBtn.disabled;
+
         showStatus(`Date range updated: ${startDate} to ${endDate}`, 'success');
-        setTimeout(() => {
-            loadData();
+        setTimeout(async () => {
+            if (hasBacktestResults) {
+                // Re-run backtest with new date range to preserve trading signals
+                await loadData();
+                await runBacktest();
+            } else {
+                // Just reload basic data
+                await loadData();
+            }
         }, 500);
     }
 }
@@ -799,9 +813,20 @@ function resetDateRange() {
         document.getElementById('startDate').value = originalStartDate;
         document.getElementById('endDate').value = originalEndDate;
 
+        // Check if backtest has been run (export button is enabled)
+        const exportBtn = document.getElementById('exportBtn');
+        const hasBacktestResults = !exportBtn.disabled;
+
         showStatus('Date range reset to original', 'success');
-        setTimeout(() => {
-            loadData();
+        setTimeout(async () => {
+            if (hasBacktestResults) {
+                // Re-run backtest with original date range to preserve trading signals
+                await loadData();
+                await runBacktest();
+            } else {
+                // Just reload basic data
+                await loadData();
+            }
         }, 500);
     }
 }
