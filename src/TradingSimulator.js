@@ -42,8 +42,14 @@ export class TradingSimulator {
                     const requestStart = new Date(startDate);
                     const requestEnd = new Date(endDate);
 
-                    // Use cached data if it covers the requested range
-                    if (firstDate <= requestStart && lastDate >= requestEnd) {
+                    // Use cached data if it covers the requested range (with some tolerance for non-trading days)
+                    console.log(`Cache check: first=${firstDate.toISOString().split('T')[0]}, last=${lastDate.toISOString().split('T')[0]}, requested=${requestStart.toISOString().split('T')[0]} to ${requestEnd.toISOString().split('T')[0]}`);
+
+                    // Allow some tolerance: cached data is good if it starts within a few days of request and covers the end
+                    const startDiffDays = (firstDate - requestStart) / (1000 * 60 * 60 * 24);
+                    const endDiffDays = (requestEnd - lastDate) / (1000 * 60 * 60 * 24);
+
+                    if (startDiffDays <= 3 && endDiffDays <= 1) {
                         console.log(`Using cached data: ${cachedData.dates.length} records`);
                         this.marketData = cachedData;
                         return { data: this.marketData, fromCache: true };

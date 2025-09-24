@@ -4,6 +4,10 @@ import helmet from 'helmet';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { TradingSimulator } from './TradingSimulator.js';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -187,17 +191,43 @@ app.post('/api/results/save', async (req, res) => {
 });
 
 
+// Clear cache
+app.post('/api/cache/clear', async (req, res) => {
+    try {
+        // Close all simulators first
+        for (const [sessionId, simulator] of simulators.entries()) {
+            try {
+                await simulator.close();
+            } catch (error) {
+                console.warn(`Error closing simulator ${sessionId}:`, error);
+            }
+        }
+        simulators.clear();
+
+        // Clear database files
+        const { DatabaseService } = await import('./services/DatabaseService.js');
+        const tempDb = new DatabaseService();
+        await tempDb.clearAllData();
+        await tempDb.close();
+
+        res.json({ success: true, message: 'Cache cleared successfully' });
+    } catch (error) {
+        console.error('Error clearing cache:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Clean up simulator session
 app.delete('/api/simulator/:sessionId', async (req, res) => {
     try {
         const { sessionId } = req.params;
         const simulator = simulators.get(sessionId);
-        
+
         if (simulator) {
             await simulator.close();
             simulators.delete(sessionId);
         }
-        
+
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: error.message });

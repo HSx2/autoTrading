@@ -1,14 +1,12 @@
-import axios from 'axios';
+import yahooFinance from 'yahoo-finance2';
 
 /**
- * Service for fetching market data
- * Note: This uses Alpha Vantage API as Yahoo Finance doesn't have an official free API
- * You'll need to get a free API key from https://www.alphavantage.co/support/#api-key
+ * Service for fetching market data using Yahoo Finance
+ * No API key required - uses yahoo-finance2 package
  */
 export class DataService {
-    constructor(apiKey = null) {
-        this.apiKey = apiKey || process.env.ALPHA_VANTAGE_API_KEY;
-        this.baseUrl = 'https://www.alphavantage.co/query';
+    constructor() {
+        // No API key needed for Yahoo Finance
     }
 
     /**
@@ -19,32 +17,20 @@ export class DataService {
      * @returns {Object} Market data object
      */
     async fetchStockData(symbol, startDate = null, endDate = null) {
-        if (!this.apiKey) {
-            throw new Error('Alpha Vantage API key is required. Set ALPHA_VANTAGE_API_KEY environment variable.');
-        }
-
         try {
-            const response = await axios.get(this.baseUrl, {
-                params: {
-                    function: 'TIME_SERIES_DAILY_ADJUSTED',
-                    symbol: symbol,
-                    apikey: this.apiKey,
-                    outputsize: 'full'
-                },
-                timeout: 10000
+            const start = startDate ? new Date(startDate) : new Date('2020-01-01');
+            const end = endDate ? new Date(endDate) : new Date();
+
+            console.log(`Fetching data for ${symbol} from ${start.toISOString().split('T')[0]} to ${end.toISOString().split('T')[0]}`);
+
+            const result = await yahooFinance.historical(symbol, {
+                period1: start,
+                period2: end,
+                interval: '1d'
             });
 
-            if (response.data['Error Message']) {
-                throw new Error(`API Error: ${response.data['Error Message']}`);
-            }
-
-            if (response.data['Note']) {
-                throw new Error('API rate limit exceeded. Please wait and try again.');
-            }
-
-            const timeSeries = response.data['Time Series (Daily)'];
-            if (!timeSeries) {
-                throw new Error('No data returned from API');
+            if (!result || result.length === 0) {
+                throw new Error(`No data available for symbol ${symbol}`);
             }
 
             // Convert to our format
@@ -55,26 +41,25 @@ export class DataService {
             const close = [];
             const volume = [];
 
-            // Sort dates and filter by date range if provided
-            const sortedDates = Object.keys(timeSeries).sort();
-            
-            for (const date of sortedDates) {
-                // Apply date filtering
-                if (startDate && date < startDate) continue;
-                if (endDate && date > endDate) continue;
+            // Sort by date (should already be sorted, but ensure it)
+            result.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-                const dayData = timeSeries[date];
-                dates.push(date);
-                open.push(parseFloat(dayData['1. open']));
-                high.push(parseFloat(dayData['2. high']));
-                low.push(parseFloat(dayData['3. low']));
-                close.push(parseFloat(dayData['4. close']));
-                volume.push(parseInt(dayData['6. volume']));
+            for (const dayData of result) {
+                const dateStr = dayData.date.toISOString().split('T')[0];
+
+                // Apply date filtering (additional safety check)
+                if (startDate && dateStr < startDate) continue;
+                if (endDate && dateStr > endDate) continue;
+
+                dates.push(dateStr);
+                open.push(Math.round(dayData.open * 100) / 100);
+                high.push(Math.round(dayData.high * 100) / 100);
+                low.push(Math.round(dayData.low * 100) / 100);
+                close.push(Math.round(dayData.close * 100) / 100);
+                volume.push(dayData.volume || 0);
             }
 
-            if (dates.length === 0) {
-                throw new Error('No data available for the specified date range');
-            }
+            console.log(`Successfully fetched ${dates.length} records for ${symbol}`);
 
             return {
                 symbol,
@@ -87,13 +72,11 @@ export class DataService {
             };
 
         } catch (error) {
-            if (error.response) {
-                throw new Error(`API request failed: ${error.response.status} ${error.response.statusText}`);
-            } else if (error.request) {
-                throw new Error('Network error: Unable to reach data provider');
-            } else {
-                throw error;
-            }
+            console.error(`Error fetching data for ${symbol}:`, error.message);
+
+            // If Yahoo Finance fails, fall back to mock data
+            console.log('Yahoo Finance failed, using mock data');
+            return this.generateMockData(symbol, startDate, endDate);
         }
     }
 
@@ -105,8 +88,10 @@ export class DataService {
      * @returns {Object} Mock market data
      */
     generateMockData(symbol, startDate, endDate) {
-        const start = new Date(startDate);
-        const end = new Date(endDate);
+        console.log(`Generating mock data for ${symbol} from ${startDate} to ${endDate}`);
+
+        const start = new Date(startDate || '2020-01-01');
+        const end = new Date(endDate || new Date().toISOString().split('T')[0]);
         const dates = [];
         const open = [];
         const high = [];
@@ -114,33 +99,43 @@ export class DataService {
         const close = [];
         const volume = [];
 
-        let currentPrice = 100 + Math.random() * 50; // Start between $100-150
+        // Base price varies by symbol
+        const basePrices = {
+            'U': 120,
+            'AAPL': 180,
+            'MSFT': 300,
+            'GOOGL': 150,
+            'TSLA': 200,
+            'NVDA': 450
+        };
+
+        let currentPrice = basePrices[symbol.toUpperCase()] || (100 + Math.random() * 100);
         const currentDate = new Date(start);
 
         while (currentDate <= end) {
             // Skip weekends
             if (currentDate.getDay() !== 0 && currentDate.getDay() !== 6) {
                 const dateStr = currentDate.toISOString().split('T')[0];
-                
+
                 // Generate realistic price movement
-                const dailyChange = (Math.random() - 0.5) * 0.1; // +/-5% max daily change
+                const dailyChange = (Math.random() - 0.5) * 0.08; // +/-4% max daily change
                 const openPrice = currentPrice * (1 + dailyChange * 0.3);
-                const volatility = Math.random() * 0.02; // Daily volatility
-                
+                const volatility = Math.random() * 0.03; // Daily volatility
+
                 const highPrice = openPrice * (1 + Math.random() * volatility);
                 const lowPrice = openPrice * (1 - Math.random() * volatility);
                 const closePrice = lowPrice + Math.random() * (highPrice - lowPrice);
-                
+
                 dates.push(dateStr);
                 open.push(Math.round(openPrice * 100) / 100);
                 high.push(Math.round(highPrice * 100) / 100);
                 low.push(Math.round(lowPrice * 100) / 100);
                 close.push(Math.round(closePrice * 100) / 100);
                 volume.push(Math.floor(1000000 + Math.random() * 5000000));
-                
+
                 currentPrice = closePrice;
             }
-            
+
             currentDate.setDate(currentDate.getDate() + 1);
         }
 

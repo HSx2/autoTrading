@@ -201,6 +201,19 @@ export class DatabaseService {
         }
     }
 
+    /**
+     * Clear all data from database
+     */
+    async clearAllData() {
+        try {
+            await this.run('DELETE FROM stock_data');
+            await this.run('DELETE FROM backtest_results');
+            console.log('All cache data cleared');
+        } catch (error) {
+            console.error('Error clearing cache data:', error);
+            throw error;
+        }
+    }
 
     /**
      * Close database connection

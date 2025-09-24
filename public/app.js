@@ -3,6 +3,13 @@ let sessionId = null;
 let chart = null;
 let currentResults = null;
 
+// Range selection variables
+let isSelecting = false;
+let selectionStart = null;
+let selectionOverlay = null;
+let originalStartDate = null;
+let originalEndDate = null;
+
 // Initialize session on page load
 document.addEventListener('DOMContentLoaded', function() {
     initializeSession();
@@ -406,6 +413,9 @@ function createBasicChart(results) {
         }
     });
 
+    // Add mouse event listeners for range selection
+    addRangeSelectionEvents();
+
     document.getElementById('chartContainer').style.display = 'block';
 }
 
@@ -547,7 +557,10 @@ function createChart(results) {
             }
         }
     });
-    
+
+    // Add mouse event listeners for range selection
+    addRangeSelectionEvents();
+
     document.getElementById('chartContainer').style.display = 'block';
 }
 
@@ -597,6 +610,199 @@ async function saveResults() {
         });
     } catch (error) {
         console.warn('Failed to save results:', error);
+    }
+}
+
+async function clearCache() {
+    showLoading('Clearing cache...');
+
+    try {
+        const response = await fetch('/api/cache/clear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showStatus('Cache cleared successfully!', 'success');
+
+            // Reset UI state
+            document.getElementById('backtestBtn').disabled = true;
+            document.getElementById('exportBtn').disabled = true;
+            document.getElementById('chartContainer').style.display = 'none';
+            document.getElementById('resultsContainer').style.display = 'none';
+
+            // Destroy existing chart
+            if (chart) {
+                chart.destroy();
+                chart = null;
+            }
+
+            // Reinitialize session since cache clear destroys all sessions
+            await initializeSession();
+        } else {
+            throw new Error(data.error || 'Failed to clear cache');
+        }
+    } catch (error) {
+        showStatus('Error clearing cache: ' + error.message, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+function addRangeSelectionEvents() {
+    const canvas = document.getElementById('priceChart');
+    if (!canvas) return;
+
+    // Store original date range on first chart creation
+    if (!originalStartDate) {
+        originalStartDate = document.getElementById('startDate').value;
+        originalEndDate = document.getElementById('endDate').value;
+    }
+
+    // Remove existing event listeners
+    removeRangeSelectionEvents();
+
+    canvas.addEventListener('mousedown', onSelectionStart);
+    canvas.addEventListener('mousemove', onSelectionMove);
+    canvas.addEventListener('mouseup', onSelectionEnd);
+    canvas.addEventListener('mouseleave', onSelectionCancel);
+}
+
+function removeRangeSelectionEvents() {
+    const canvas = document.getElementById('priceChart');
+    if (!canvas) return;
+
+    canvas.removeEventListener('mousedown', onSelectionStart);
+    canvas.removeEventListener('mousemove', onSelectionMove);
+    canvas.removeEventListener('mouseup', onSelectionEnd);
+    canvas.removeEventListener('mouseleave', onSelectionCancel);
+}
+
+function onSelectionStart(event) {
+    if (!chart) return;
+
+    const rect = event.target.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+
+    isSelecting = true;
+    selectionStart = x;
+
+    // Create selection overlay
+    createSelectionOverlay();
+}
+
+function onSelectionMove(event) {
+    if (!isSelecting || !chart) return;
+
+    const rect = event.target.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+
+    updateSelectionOverlay(selectionStart, x);
+}
+
+function onSelectionEnd(event) {
+    if (!isSelecting || !chart) return;
+
+    const rect = event.target.getBoundingClientRect();
+    const endX = event.clientX - rect.left;
+
+    // Convert pixel positions to data indices
+    const startIndex = getDateIndexFromPixel(Math.min(selectionStart, endX));
+    const endIndex = getDateIndexFromPixel(Math.max(selectionStart, endX));
+
+    if (startIndex !== null && endIndex !== null && Math.abs(endX - selectionStart) > 10) {
+        updateDateRange(startIndex, endIndex);
+    }
+
+    // Clean up
+    isSelecting = false;
+    selectionStart = null;
+    removeSelectionOverlay();
+}
+
+function onSelectionCancel() {
+    isSelecting = false;
+    selectionStart = null;
+    removeSelectionOverlay();
+}
+
+function createSelectionOverlay() {
+    const chartWrapper = document.querySelector('.chart-wrapper');
+    if (!chartWrapper || selectionOverlay) return;
+
+    selectionOverlay = document.createElement('div');
+    selectionOverlay.style.position = 'absolute';
+    selectionOverlay.style.backgroundColor = 'rgba(54, 162, 235, 0.2)';
+    selectionOverlay.style.border = '1px solid rgba(54, 162, 235, 1)';
+    selectionOverlay.style.pointerEvents = 'none';
+    selectionOverlay.style.top = '0';
+    selectionOverlay.style.height = '100%';
+    selectionOverlay.style.zIndex = '1000';
+
+    chartWrapper.style.position = 'relative';
+    chartWrapper.appendChild(selectionOverlay);
+}
+
+function updateSelectionOverlay(startX, endX) {
+    if (!selectionOverlay) return;
+
+    const left = Math.min(startX, endX);
+    const width = Math.abs(endX - startX);
+
+    selectionOverlay.style.left = `${left}px`;
+    selectionOverlay.style.width = `${width}px`;
+    selectionOverlay.style.display = 'block';
+}
+
+function removeSelectionOverlay() {
+    if (selectionOverlay) {
+        selectionOverlay.remove();
+        selectionOverlay = null;
+    }
+}
+
+function getDateIndexFromPixel(pixelX) {
+    if (!chart || !chart.data.labels) return null;
+
+    const chartArea = chart.chartArea;
+    if (pixelX < chartArea.left || pixelX > chartArea.right) return null;
+
+    // Calculate relative position within chart area
+    const relativeX = (pixelX - chartArea.left) / (chartArea.right - chartArea.left);
+    const index = Math.round(relativeX * (chart.data.labels.length - 1));
+
+    return Math.max(0, Math.min(index, chart.data.labels.length - 1));
+}
+
+function updateDateRange(startIndex, endIndex) {
+    if (!chart || !chart.data.labels) return;
+
+    const startDate = chart.data.labels[startIndex];
+    const endDate = chart.data.labels[endIndex];
+
+    if (startDate && endDate) {
+        // Update the date inputs
+        document.getElementById('startDate').value = startDate;
+        document.getElementById('endDate').value = endDate;
+
+        // Reload data with new date range
+        showStatus(`Date range updated: ${startDate} to ${endDate}`, 'success');
+        setTimeout(() => {
+            loadData();
+        }, 500);
+    }
+}
+
+function resetDateRange() {
+    if (originalStartDate && originalEndDate) {
+        document.getElementById('startDate').value = originalStartDate;
+        document.getElementById('endDate').value = originalEndDate;
+
+        showStatus('Date range reset to original', 'success');
+        setTimeout(() => {
+            loadData();
+        }, 500);
     }
 }
 
