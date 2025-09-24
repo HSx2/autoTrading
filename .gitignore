@@ -6,6 +6,7 @@ yarn-error.log*
 
 # Environment variables
 .env
+credentials.json
 
 # Database
 *.db
@@ -41,3 +42,6 @@ Thumbs.db
 # Build outputs
 dist/
 build/
+
+# Output files
+out/

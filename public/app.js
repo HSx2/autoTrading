@@ -231,6 +231,7 @@ async function runBacktest() {
             displayResults(currentResults);
             createChart(currentResults);
             document.getElementById('exportBtn').disabled = false;
+            // document.getElementById('exportSheetsBtn').disabled = false;
             
             // Save results automatically
             await saveResults();
@@ -421,22 +422,32 @@ function createBasicChart(results) {
 
 function createChart(results) {
     const ctx = document.getElementById('priceChart').getContext('2d');
-    
+
     // Destroy existing chart if it exists
     if (chart) {
         chart.destroy();
     }
-    
+
     const { marketData, indicators, equityCurve, trades } = results;
-    
+
     // Prepare data for chart
     const labels = marketData.dates;
     const priceData = marketData.close;
     const mtrBase = indicators.mtrBase;
     const mtrUpper = indicators.mtrUpper;
     const mtrLower = indicators.mtrLower;
+
+    // Normalize price and equity to start from same baseline (100%)
+    const startPrice = priceData[0];
+    const startEquity = equityCurve[0];
+
+    const normalizedPrice = priceData.map(price => (price / startPrice) * 100);
+    const normalizedEquity = equityCurve.map(equity => (equity / startEquity) * 100);
+    const normalizedMtrBase = mtrBase.map(value => value != null && !isNaN(value) ? (value / startPrice) * 100 : null);
+    const normalizedMtrUpper = mtrUpper.map(value => value != null && !isNaN(value) ? (value / startPrice) * 100 : null);
+    const normalizedMtrLower = mtrLower.map(value => value != null && !isNaN(value) ? (value / startPrice) * 100 : null);
     
-    // Create buy/sell markers
+    // Create buy/sell markers (normalized)
     const buyPoints = [];
     const sellPoints = [];
 
@@ -446,7 +457,7 @@ function createChart(results) {
             if (dateIndex !== -1) {
                 const point = {
                     x: trade.date,
-                    y: trade.price
+                    y: (trade.price / startPrice) * 100  // Normalize trade markers too
                 };
 
                 if (trade.type === 'Buy Long') {
@@ -464,8 +475,8 @@ function createChart(results) {
             labels: labels,
             datasets: [
                 {
-                    label: 'Price',
-                    data: priceData,
+                    label: 'Buy & Hold (%)',
+                    data: normalizedPrice,
                     borderColor: 'black',
                     backgroundColor: 'rgba(0,0,0,0.1)',
                     borderWidth: 2,
@@ -473,8 +484,17 @@ function createChart(results) {
                     pointRadius: 0
                 },
                 {
+                    label: 'MTR Strategy (%)',
+                    data: normalizedEquity,
+                    borderColor: 'purple',
+                    backgroundColor: 'rgba(128,0,128,0.1)',
+                    borderWidth: 3,
+                    fill: false,
+                    pointRadius: 0
+                },
+                {
                     label: 'MTR Base',
-                    data: mtrBase,
+                    data: normalizedMtrBase,
                     borderColor: 'orange',
                     backgroundColor: 'rgba(255,165,0,0.1)',
                     borderWidth: 1.5,
@@ -483,7 +503,7 @@ function createChart(results) {
                 },
                 {
                     label: 'MTR Upper',
-                    data: mtrUpper,
+                    data: normalizedMtrUpper,
                     borderColor: 'red',
                     backgroundColor: 'rgba(255,0,0,0.1)',
                     borderWidth: 1.5,
@@ -492,7 +512,7 @@ function createChart(results) {
                 },
                 {
                     label: 'MTR Lower',
-                    data: mtrLower,
+                    data: normalizedMtrLower,
                     borderColor: 'green',
                     backgroundColor: 'rgba(0,255,0,0.1)',
                     borderWidth: 1.5,
@@ -523,16 +543,6 @@ function createChart(results) {
                     pointStyle: 'triangle',
                     rotation: 180,
                     pointHoverRadius: 8
-                },
-                {
-                    label: 'Equity Curve',
-                    data: equityCurve,
-                    borderColor: 'purple',
-                    backgroundColor: 'rgba(128,0,128,0.1)',
-                    borderWidth: 2,
-                    fill: false,
-                    pointRadius: 0,
-                    yAxisID: 'equity'
                 }
             ]
         },
@@ -554,22 +564,14 @@ function createChart(results) {
                 y: {
                     type: 'linear',
                     display: true,
-                    position: 'left',
                     title: {
                         display: true,
-                        text: 'Price ($)'
-                    }
-                },
-                equity: {
-                    type: 'linear',
-                    display: true,
-                    position: 'right',
-                    title: {
-                        display: true,
-                        text: 'Equity ($)'
+                        text: 'Performance (%)'
                     },
-                    grid: {
-                        drawOnChartArea: false
+                    ticks: {
+                        callback: function(value) {
+                            return value.toFixed(1) + '%';
+                        }
                     }
                 }
             },
@@ -621,7 +623,14 @@ async function exportCSV() {
         }
     } catch (error) {
         showStatus('Error exporting CSV: ' + error.message, 'error');
+    } finally {
+        hideLoading();
     }
+}
+
+// Google Sheets export functionality temporarily disabled
+async function exportGoogleSheets() {
+    showStatus('Google Sheets export temporarily disabled', 'info');
 }
 
 async function saveResults() {
@@ -657,6 +666,7 @@ async function clearCache() {
             // Reset UI state
             document.getElementById('backtestBtn').disabled = true;
             document.getElementById('exportBtn').disabled = true;
+            // document.getElementById('exportSheetsBtn').disabled = true;
             document.getElementById('chartContainer').style.display = 'none';
             document.getElementById('resultsContainer').style.display = 'none';
 
@@ -810,49 +820,57 @@ function updateDateRange(startIndex, endIndex) {
     const endDate = chart.data.labels[endIndex];
 
     if (startDate && endDate) {
-        // Update the date inputs
-        document.getElementById('startDate').value = startDate;
-        document.getElementById('endDate').value = endDate;
+        // Filter chart data to show only the selected range
+        filterChartData(startIndex, endIndex);
 
-        // Check if backtest has been run (export button is enabled)
-        const exportBtn = document.getElementById('exportBtn');
-        const hasBacktestResults = !exportBtn.disabled;
-
-        showStatus(`Date range updated: ${startDate} to ${endDate}`, 'success');
-        setTimeout(async () => {
-            if (hasBacktestResults) {
-                // Re-run backtest with new date range to preserve trading signals
-                await loadData();
-                await runBacktest();
-            } else {
-                // Just reload basic data
-                await loadData();
-            }
-        }, 500);
+        showStatus(`Chart view filtered: ${startDate} to ${endDate} (view only)`, 'info');
     }
 }
 
-function resetDateRange() {
-    if (originalStartDate && originalEndDate) {
-        document.getElementById('startDate').value = originalStartDate;
-        document.getElementById('endDate').value = originalEndDate;
+function filterChartData(startIndex, endIndex) {
+    if (!chart || !chart.data) return;
 
-        // Check if backtest has been run (export button is enabled)
-        const exportBtn = document.getElementById('exportBtn');
-        const hasBacktestResults = !exportBtn.disabled;
+    // Simply slice all existing datasets to the selected range
+    const filteredLabels = chart.data.labels.slice(startIndex, endIndex + 1);
 
-        showStatus('Date range reset to original', 'success');
-        setTimeout(async () => {
-            if (hasBacktestResults) {
-                // Re-run backtest with original date range to preserve trading signals
-                await loadData();
-                await runBacktest();
+    // Update labels
+    chart.data.labels = filteredLabels;
+
+    // Update all datasets by slicing their existing data
+    chart.data.datasets.forEach(dataset => {
+        if (dataset.data && Array.isArray(dataset.data)) {
+            if (dataset.type === 'scatter') {
+                // For scatter plots (signals), filter points within the date range
+                const startDate = filteredLabels[0];
+                const endDate = filteredLabels[filteredLabels.length - 1];
+
+                dataset.data = dataset.data.filter(point => {
+                    return point.x >= startDate && point.x <= endDate;
+                });
             } else {
-                // Just reload basic data
-                await loadData();
+                // For line datasets, just slice the data array
+                dataset.data = dataset.data.slice(startIndex, endIndex + 1);
             }
-        }, 500);
-    }
+        }
+    });
+
+    // Update the chart display
+    chart.update('none'); // 'none' animation for instant update
+}
+
+function resetDateRange() {
+    if (!currentResults) return;
+
+    // Restore full chart data view without recalculating signals
+    restoreFullChartData();
+    showStatus('Chart view reset to full range (view only)', 'info');
+}
+
+function restoreFullChartData() {
+    if (!chart || !currentResults) return;
+
+    // Recreate the chart with full data to restore everything properly
+    createChart(currentResults);
 }
 
 

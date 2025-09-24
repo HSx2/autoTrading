@@ -20,7 +20,7 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-            "script-src": ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
+            "script-src": ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://cdn.jsdelivr.net"],
             "script-src-attr": ["'unsafe-inline'"]
         }
     }
@@ -89,16 +89,16 @@ app.post('/api/indicator/calculate', (req, res) => {
 });
 
 // Generate signals
-app.post('/api/signals/generate', (req, res) => {
+app.post('/api/signals/generate', async (req, res) => {
     try {
         const { sessionId, params } = req.body;
         const simulator = simulators.get(sessionId);
-        
+
         if (!simulator) {
             return res.status(400).json({ error: 'Simulator not initialized' });
         }
 
-        const signals = simulator.generateSignals(params);
+        const signals = await simulator.generateSignals(params);
         res.json({ success: true, signalCount: signals.filter(s => s !== 0).length });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -168,6 +168,23 @@ app.post('/api/export/csv', async (req, res) => {
 
         const filepath = await simulator.exportToCSV(filename || `export_${Date.now()}.csv`);
         res.json({ success: true, filepath });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Export to Google Sheets
+app.post('/api/export/sheets', async (req, res) => {
+    try {
+        const { sessionId, sheetTitle } = req.body;
+        const simulator = simulators.get(sessionId);
+
+        if (!simulator) {
+            return res.status(400).json({ error: 'Simulator not initialized' });
+        }
+
+        const result = await simulator.exportToGoogleSheets(sheetTitle || 'MTR Trading Analysis');
+        res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

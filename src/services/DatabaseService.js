@@ -29,6 +29,10 @@ export class DatabaseService {
                     low REAL,
                     close REAL,
                     volume INTEGER,
+                    mtr_base REAL,
+                    mtr_upper REAL,
+                    mtr_lower REAL,
+                    signal INTEGER,
                     UNIQUE(symbol, date)
                 )
             `);
@@ -103,6 +107,40 @@ export class DatabaseService {
     }
 
     /**
+     * Update stock data with MTR indicators and signals
+     */
+    async updateMTRData(symbol, data) {
+        const { dates, mtrBase, mtrUpper, mtrLower, signals } = data;
+
+        try {
+            const stmt = await this.db.prepare(`
+                UPDATE stock_data
+                SET mtr_base = ?, mtr_upper = ?, mtr_lower = ?, signal = ?
+                WHERE symbol = ? AND date = ?
+            `);
+
+            for (let i = 0; i < dates.length; i++) {
+                await new Promise((resolve, reject) => {
+                    stmt.run([
+                        mtrBase[i] || null,
+                        mtrUpper[i] || null,
+                        mtrLower[i] || null,
+                        signals[i] || 0,
+                        symbol,
+                        dates[i]
+                    ], (err) => err ? reject(err) : resolve());
+                });
+            }
+
+            stmt.finalize();
+            console.log(`Updated MTR data for ${dates.length} records for ${symbol}`);
+        } catch (error) {
+            console.error('Error updating MTR data:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Get stock data from database
      */
     async getStockData(symbol, startDate = null, endDate = null) {
@@ -135,8 +173,15 @@ export class DatabaseService {
             const low = rows.map(row => row.low);
             const close = rows.map(row => row.close);
             const volume = rows.map(row => row.volume);
+            const mtrBase = rows.map(row => row.mtr_base);
+            const mtrUpper = rows.map(row => row.mtr_upper);
+            const mtrLower = rows.map(row => row.mtr_lower);
+            const signals = rows.map(row => row.signal);
 
-            return { symbol, dates, open, high, low, close, volume };
+            return {
+                symbol, dates, open, high, low, close, volume,
+                mtrBase, mtrUpper, mtrLower, signals
+            };
         } catch (error) {
             console.error('Error getting stock data:', error);
             throw error;

@@ -39,7 +39,7 @@ async function main() {
 
         // Step 3: Generate signals
         console.log('3️⃣ Generating trading signals...');
-        simulator.generateSignals({
+        await simulator.generateSignals({
             stopLossPct: 0.10,
             minDaysBetweenTrades: 2,
             insideMarginRatio: 0.10

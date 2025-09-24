@@ -3,6 +3,7 @@ import { TradingStrategy } from './strategies/TradingStrategy.js';
 import { BacktestEngine } from './engine/BacktestEngine.js';
 import { DataService } from './services/DataService.js';
 import { DatabaseService } from './services/DatabaseService.js';
+import { GoogleSheetsService } from './services/GoogleSheetsService.js';
 import createCsvWriter from 'csv-writer';
 
 /**
@@ -100,7 +101,7 @@ export class TradingSimulator {
     /**
      * Generate trading signals
      */
-    generateSignals(params = null) {
+    async generateSignals(params = null) {
         if (!this.indicators) {
             throw new Error('No indicators calculated. Call calculateIndicator() first.');
         }
@@ -116,7 +117,31 @@ export class TradingSimulator {
             mtrLower: this.indicators.mtrLower
         });
 
+        // Save MTR data and signals to database (temporarily disabled)
+        // await this.saveMTRData();
+
         return this.signals;
+    }
+
+    /**
+     * Save MTR indicators and signals to database
+     */
+    async saveMTRData() {
+        if (!this.marketData || !this.indicators || !this.signals) {
+            return;
+        }
+
+        try {
+            await this.database.updateMTRData(this.marketData.symbol, {
+                dates: this.marketData.dates,
+                mtrBase: this.indicators.mtrBase,
+                mtrUpper: this.indicators.mtrUpper,
+                mtrLower: this.indicators.mtrLower,
+                signals: this.signals
+            });
+        } catch (error) {
+            console.error('Error saving MTR data:', error);
+        }
     }
 
     /**
@@ -221,6 +246,15 @@ export class TradingSimulator {
         }
 
         try {
+            const fs = await import('fs');
+            const path = await import('path');
+
+            // Ensure out directory exists
+            const outDir = 'out';
+            await fs.promises.mkdir(outDir, { recursive: true });
+
+            // Create full path with out directory
+            const fullPath = path.join(outDir, filename);
             // Prepare data for export
             const exportData = [];
             
@@ -258,7 +292,7 @@ export class TradingSimulator {
 
             // Create CSV writer
             const csvWriter = createCsvWriter.createObjectCsvWriter({
-                path: filename,
+                path: fullPath,
                 header: [
                     { id: 'Date', title: 'Date' },
                     { id: 'Close_Price', title: 'Close_Price' },
@@ -274,12 +308,127 @@ export class TradingSimulator {
             });
 
             await csvWriter.writeRecords(exportData);
-            console.log(`Data exported to ${filename}`);
-            return filename;
+            console.log(`Data exported to ${fullPath}`);
+            return fullPath;
 
         } catch (error) {
             console.error('Error exporting CSV:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Export backtest results to Google Sheets with formulas for debugging
+     */
+    async exportToGoogleSheets(sheetTitle = 'MTR Trading Analysis') {
+        if (!this.backtestResults || !this.marketData || !this.signals) {
+            throw new Error('No results to export. Run simulation first.');
+        }
+
+        try {
+            console.log('Starting Google Sheets export...');
+
+            const sheetsService = new GoogleSheetsService();
+            await sheetsService.initialize();
+
+            // Create the spreadsheet
+            const spreadsheet = await sheetsService.createTradingSpreadsheet(
+                sheetTitle,
+                this.marketData.symbol
+            );
+
+            console.log(`Created spreadsheet: ${spreadsheet.spreadsheetUrl}`);
+
+            // Setup structure
+            await sheetsService.setupSpreadsheetStructure(spreadsheet.spreadsheetId);
+
+            // Prepare export data with more detailed information
+            const exportData = [];
+            for (let i = 0; i < this.marketData.dates.length; i++) {
+                const price = this.marketData.close[i];
+                const signal = this.signals[i];
+                let mtrPlace = '';
+
+                if (this.indicators && this.indicators.mtrUpper[i] && this.indicators.mtrLower[i]) {
+                    if (price > this.indicators.mtrUpper[i]) {
+                        mtrPlace = 'high+';
+                    } else if (price < this.indicators.mtrLower[i]) {
+                        mtrPlace = 'low-';
+                    } else {
+                        mtrPlace = 'inside';
+                    }
+                }
+
+                exportData.push({
+                    Date: this.marketData.dates[i],
+                    Close_Price: price.toFixed(4),
+                    Volume: this.marketData.volume ? this.marketData.volume[i] : '',
+                    High: this.marketData.high ? this.marketData.high[i].toFixed(4) : '',
+                    Low: this.marketData.low ? this.marketData.low[i].toFixed(4) : '',
+                    Open: this.marketData.open ? this.marketData.open[i].toFixed(4) : '',
+                    Should_Buy: signal === 1,
+                    Should_Sell: signal === -1,
+                    Signal_Raw: signal,
+                    MTR_Place: mtrPlace
+                });
+            }
+
+            // Add trading data
+            await sheetsService.addTradingData(spreadsheet.spreadsheetId, exportData);
+
+            // Add code-calculated equity values for comparison
+            await sheetsService.addCodeEquityValues(spreadsheet.spreadsheetId, this.backtestResults.equityCurve);
+
+            // Add summary with comparison between formula and code calculations
+            await sheetsService.addSummarySheet(
+                spreadsheet.spreadsheetId,
+                this.backtestResults,
+                exportData.length
+            );
+
+            console.log(`Google Sheets export completed: ${spreadsheet.spreadsheetUrl}`);
+            return {
+                success: true,
+                spreadsheetId: spreadsheet.spreadsheetId,
+                spreadsheetUrl: spreadsheet.spreadsheetUrl,
+                message: 'Data exported to Google Sheets with debugging formulas'
+            };
+
+        } catch (error) {
+            console.error('Error exporting to Google Sheets:', error);
+
+            // Fallback: still create a local analysis file
+            const fs = await import('fs');
+            const path = await import('path');
+
+            // Ensure out directory exists
+            const outDir = 'out';
+            await fs.promises.mkdir(outDir, { recursive: true });
+
+            const fallbackFile = path.join(outDir, `sheets_fallback_${Date.now()}.json`);
+            const fallbackData = {
+                error: error.message,
+                timestamp: new Date().toISOString(),
+                note: 'Google Sheets API not available. Set up credentials.json for full functionality.',
+                dataPreview: {
+                    recordCount: this.marketData.dates.length,
+                    symbol: this.marketData.symbol,
+                    dateRange: {
+                        start: this.marketData.dates[0],
+                        end: this.marketData.dates[this.marketData.dates.length - 1]
+                    },
+                    performance: this.backtestResults.strategy
+                }
+            };
+
+            await fs.promises.writeFile(fallbackFile, JSON.stringify(fallbackData, null, 2));
+
+            return {
+                success: false,
+                error: error.message,
+                fallbackFile,
+                message: 'Google Sheets export failed. Created fallback file with analysis data.'
+            };
         }
     }
 

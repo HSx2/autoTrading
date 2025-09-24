@@ -1,5 +1,8 @@
 import yahooFinance from 'yahoo-finance2';
 
+// Suppress deprecated historical API notice
+yahooFinance.suppressNotices(['ripHistorical']);
+
 /**
  * Service for fetching market data using Yahoo Finance
  * No API key required - uses yahoo-finance2 package
@@ -23,17 +26,17 @@ export class DataService {
 
             console.log(`Fetching data for ${symbol} from ${start.toISOString().split('T')[0]} to ${end.toISOString().split('T')[0]}`);
 
-            const result = await yahooFinance.historical(symbol, {
+            const result = await yahooFinance.chart(symbol, {
                 period1: start,
                 period2: end,
                 interval: '1d'
             });
 
-            if (!result || result.length === 0) {
+            if (!result || !result.quotes || result.quotes.length === 0) {
                 throw new Error(`No data available for symbol ${symbol}`);
             }
 
-            // Convert to our format
+            // Convert to our format - chart() API returns data differently
             const dates = [];
             const open = [];
             const high = [];
@@ -41,22 +44,27 @@ export class DataService {
             const close = [];
             const volume = [];
 
-            // Sort by date (should already be sorted, but ensure it)
-            result.sort((a, b) => new Date(a.date) - new Date(b.date));
+            // Chart API returns timestamps array and corresponding data arrays
+            const quotes = result.quotes;
 
-            for (const dayData of result) {
-                const dateStr = dayData.date.toISOString().split('T')[0];
+            for (const quote of quotes) {
+                if (!quote.date) continue;
 
-                // Apply date filtering (additional safety check)
+                const dateStr = quote.date.toISOString().split('T')[0];
+
+                // Apply date filtering
                 if (startDate && dateStr < startDate) continue;
                 if (endDate && dateStr > endDate) continue;
 
+                // Skip incomplete data
+                if (quote.open === null || quote.close === null) continue;
+
                 dates.push(dateStr);
-                open.push(Math.round(dayData.open * 100) / 100);
-                high.push(Math.round(dayData.high * 100) / 100);
-                low.push(Math.round(dayData.low * 100) / 100);
-                close.push(Math.round(dayData.close * 100) / 100);
-                volume.push(dayData.volume || 0);
+                open.push(Math.round(quote.open * 100) / 100);
+                high.push(Math.round(quote.high * 100) / 100);
+                low.push(Math.round(quote.low * 100) / 100);
+                close.push(Math.round(quote.close * 100) / 100);
+                volume.push(quote.volume || 0);
             }
 
             console.log(`Successfully fetched ${dates.length} records for ${symbol}`);
