@@ -560,7 +560,10 @@
             MTR Trading Simulator
             <span class="version" id="versionInfo"></span>
         </div>
-        <input type="text" class="symbol-search" id="symbol" placeholder="Search symbols..." value="U">
+        <div style="display: flex; align-items: center;">
+            <input type="text" class="symbol-search" id="symbol" placeholder="Search symbols..." value="U">
+            <button class="chart-btn" onclick="loadData()" style="margin-left: 8px; padding: 8px 12px; font-size: 13px;">Go</button>
+        </div>
         <input type="date" id="startDate" value="2022-01-01" style="margin-left: 12px; background: #2a2e39; border: 1px solid #434651; color: #d1d4dc; padding: 8px; border-radius: 6px;">
         <input type="date" id="endDate" value="2024-01-01" style="margin-left: 8px; background: #2a2e39; border: 1px solid #434651; color: #d1d4dc; padding: 8px; border-radius: 6px;">
         <input type="number" id="initialCapital" value="10000" min="1000" placeholder="Capital" style="margin-left: 8px; width: 100px; background: #2a2e39; border: 1px solid #434651; color: #d1d4dc; padding: 8px; border-radius: 6px;">
@@ -638,7 +641,6 @@
                     <div class="chart-info">Unity Software Inc. • NASDAQ</div>
                 </div>
                 <div class="chart-controls">
-                    <button class="chart-btn" onclick="loadData()">Load Data</button>
                     <div class="toggle-container" id="toggleResultsContainer" style="display: none;">
                         <label class="toggle-label">
                             <input type="checkbox" id="resultsToggle" checked onchange="toggleResults()">

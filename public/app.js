@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', function() {
     updateEndDateToToday();
     setupSliderListeners();
     setupWatchlistListeners();
+    setupSymbolInputListener();
     loadVersionInfo();
 });
 
@@ -91,12 +92,22 @@ function setupWatchlistListeners() {
             const symbolName = this.querySelector('.watchlist-name').textContent;
             document.querySelector('.chart-info').textContent = `${symbolName} • NASDAQ`;
 
-            // Auto-load data if we have existing chart
-            if (chart && chart.data && chart.data.labels && chart.data.labels.length > 0) {
+            // Auto-load data for the selected symbol
+            loadData();
+        });
+    });
+}
+
+// Setup symbol input Enter key handler
+function setupSymbolInputListener() {
+    const symbolInput = document.getElementById('symbol');
+    if (symbolInput) {
+        symbolInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
                 loadData();
             }
         });
-    });
+    }
 }
 
 // Load and display version information
@@ -251,18 +262,17 @@ async function calculateAndShowChart(silent = false) {
             const resultsData = await resultsResponse.json();
 
             if (resultsData.success) {
-                createBasicChart(resultsData.results);
+                // Skip creating basic chart to avoid flickering, go directly to backtest
+                // which will create the full chart
                 if (!silent) {
-                    showStatus('Chart updated successfully', 'success');
+                    showStatus('Indicators calculated, running backtest...', 'info');
                 }
 
-                // Show equity toggle when chart is ready
+                // Show equity toggle when ready
                 showEquityToggle();
 
-                // Auto-run backtest after chart is created
-                setTimeout(() => {
-                    runBacktest(true); // true = auto-run, less verbose
-                }, 500);
+                // Run backtest immediately to create the full chart
+                runBacktest(true); // true = auto-run, less verbose
             }
         }
     } catch (error) {
@@ -519,8 +529,8 @@ function createBasicChart(results) {
                 {
                     label: 'Price',
                     data: priceData,
-                    borderColor: 'black',
-                    backgroundColor: 'rgba(0,0,0,0.1)',
+                    borderColor: 'white',
+                    backgroundColor: 'rgba(255,255,255,0.1)',
                     borderWidth: 2,
                     fill: false,
                     pointRadius: 0
@@ -653,8 +663,8 @@ function createChart(results) {
                 {
                     label: 'Buy & Hold (%)',
                     data: normalizedPrice,
-                    borderColor: 'black',
-                    backgroundColor: 'rgba(0,0,0,0.1)',
+                    borderColor: 'white',
+                    backgroundColor: 'rgba(255,255,255,0.1)',
                     borderWidth: 2,
                     fill: false,
                     pointRadius: 0
