@@ -161,34 +161,27 @@ app.post('/api/export/csv', async (req, res) => {
     try {
         const { sessionId, filename } = req.body;
         const simulator = simulators.get(sessionId);
-        
-        if (!simulator) {
-            return res.status(400).json({ error: 'Simulator not initialized' });
-        }
-
-        const filepath = await simulator.exportToCSV(filename || `export_${Date.now()}.csv`);
-        res.json({ success: true, filepath });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Export to Google Sheets
-app.post('/api/export/sheets', async (req, res) => {
-    try {
-        const { sessionId, sheetTitle } = req.body;
-        const simulator = simulators.get(sessionId);
 
         if (!simulator) {
             return res.status(400).json({ error: 'Simulator not initialized' });
         }
 
-        const result = await simulator.exportToGoogleSheets(sheetTitle || 'MTR Trading Analysis');
-        res.json(result);
+        const csvContent = simulator.generateCSVContent();
+        const defaultFilename = `mtr_trading_export_${Date.now()}.csv`;
+        const downloadFilename = filename || defaultFilename;
+
+        // Set headers for CSV download
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename}"`);
+        res.setHeader('Cache-Control', 'no-cache');
+
+        // Send CSV content
+        res.send(csvContent);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
+
 
 // Save results
 app.post('/api/results/save', async (req, res) => {

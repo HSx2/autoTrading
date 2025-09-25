@@ -231,7 +231,6 @@ async function runBacktest() {
             displayResults(currentResults);
             createChart(currentResults);
             document.getElementById('exportBtn').disabled = false;
-            // document.getElementById('exportSheetsBtn').disabled = false;
             
             // Save results automatically
             await saveResults();
@@ -605,7 +604,7 @@ async function exportCSV() {
     try {
         const symbol = document.getElementById('symbol').value;
         const filename = `${symbol}_${Date.now()}_results.csv`;
-        
+
         const response = await fetch('/api/export/csv', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -615,11 +614,26 @@ async function exportCSV() {
             })
         });
 
-        const data = await response.json();
-        if (data.success) {
-            showStatus(`Results exported to ${data.filepath}`, 'success');
+        if (response.ok) {
+            // Create blob from response
+            const blob = await response.blob();
+
+            // Create download link
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+
+            // Cleanup
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            showStatus('CSV file downloaded successfully', 'success');
         } else {
-            throw new Error(data.error || 'Export failed');
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Export failed');
         }
     } catch (error) {
         showStatus('Error exporting CSV: ' + error.message, 'error');
@@ -628,10 +642,6 @@ async function exportCSV() {
     }
 }
 
-// Google Sheets export functionality temporarily disabled
-async function exportGoogleSheets() {
-    showStatus('Google Sheets export temporarily disabled', 'info');
-}
 
 async function saveResults() {
     if (!sessionId) return;
@@ -666,7 +676,6 @@ async function clearCache() {
             // Reset UI state
             document.getElementById('backtestBtn').disabled = true;
             document.getElementById('exportBtn').disabled = true;
-            // document.getElementById('exportSheetsBtn').disabled = true;
             document.getElementById('chartContainer').style.display = 'none';
             document.getElementById('resultsContainer').style.display = 'none';
 
