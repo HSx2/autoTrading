@@ -14,7 +14,103 @@ let originalEndDate = null;
 document.addEventListener('DOMContentLoaded', function() {
     initializeSession();
     updateEndDateToToday();
+    setupSliderListeners();
+    setupWatchlistListeners();
+    loadVersionInfo();
 });
+
+// Setup real-time slider value updates and auto-recalculation
+function setupSliderListeners() {
+    const sliders = [
+        { slider: 'priceChangeThreshold', display: 'priceChangeValue' },
+        { slider: 'minDaysBetweenChanges', display: 'minDaysValue' },
+        { slider: 'stabilityConfirmation', display: 'stabilityValue' },
+        { slider: 'volatilityThreshold', display: 'volatilityValue' },
+        { slider: 'stopLoss', display: 'stopLossValue' },
+        { slider: 'serenityWindow', display: 'serenityValue' },
+        { slider: 'atrWindow', display: 'atrValue' },
+        { slider: 'bandMult', display: 'bandMultValue' }
+    ];
+
+    // All sliders for auto-recalculation
+    const allSliders = sliders;
+
+    let recalcTimeout;
+
+    allSliders.forEach(({ slider, display }) => {
+        const sliderElement = document.getElementById(slider);
+        const displayElement = display ? document.getElementById(display) : null;
+
+        if (sliderElement) {
+            // Update display value in real-time as you drag
+            sliderElement.addEventListener('input', function() {
+                if (displayElement) {
+                    displayElement.textContent = this.value;
+                }
+
+                // Debounce the recalculation to avoid too many requests while dragging
+                clearTimeout(recalcTimeout);
+                recalcTimeout = setTimeout(() => {
+                    // Only recalculate if we have data loaded
+                    if (chart && chart.data && chart.data.labels && chart.data.labels.length > 0) {
+                        calculateAndShowChart(true); // true = silent update
+                    }
+                }, 200); // 200ms delay after stopping movement
+            });
+
+            // Also update on change (when you release the slider)
+            sliderElement.addEventListener('change', function() {
+                if (displayElement) {
+                    displayElement.textContent = this.value;
+                }
+
+                // Immediate recalculation when slider is released
+                if (chart && chart.data && chart.data.labels && chart.data.labels.length > 0) {
+                    calculateAndShowChart(true); // true = silent update
+                }
+            });
+        }
+    });
+}
+
+// Setup watchlist item click handlers
+function setupWatchlistListeners() {
+    document.querySelectorAll('.watchlist-item').forEach(item => {
+        item.addEventListener('click', function() {
+            const symbol = this.dataset.symbol;
+
+            // Update active state
+            document.querySelectorAll('.watchlist-item').forEach(i => i.classList.remove('active'));
+            this.classList.add('active');
+
+            // Update symbol in search box and chart header
+            document.getElementById('symbol').value = symbol;
+            document.getElementById('currentSymbol').textContent = symbol;
+
+            // Update chart info based on symbol
+            const symbolName = this.querySelector('.watchlist-name').textContent;
+            document.querySelector('.chart-info').textContent = `${symbolName} • NASDAQ`;
+
+            // Auto-load data if we have existing chart
+            if (chart && chart.data && chart.data.labels && chart.data.labels.length > 0) {
+                loadData();
+            }
+        });
+    });
+}
+
+// Load and display version information
+async function loadVersionInfo() {
+    try {
+        const response = await fetch('/api/version');
+        const data = await response.json();
+        if (response.ok) {
+            document.getElementById('versionInfo').textContent = `v${data.version}`;
+        }
+    } catch (error) {
+        console.warn('Could not load version info:', error);
+    }
+}
 
 async function initializeSession() {
     try {
@@ -108,7 +204,6 @@ async function loadData() {
             }
 
             showStatus(`Data loaded: ${data.data.recordCount} records for ${data.data.symbol}${data.fromCache ? ' (cached)' : ''}`, 'success');
-            document.getElementById('backtestBtn').disabled = false;
 
             // Calculate indicators and show chart immediately
             await calculateAndShowChart();
@@ -122,16 +217,23 @@ async function loadData() {
     }
 }
 
-async function calculateAndShowChart() {
+async function calculateAndShowChart(silent = false) {
     if (!sessionId) return;
 
     try {
+        // Show subtle loading indicator for non-silent updates
+        if (!silent) {
+            showStatus('Calculating indicators...', 'info');
+        }
         // Calculate indicators
         const indicatorParams = {
             serenityWindow: parseInt(document.getElementById('serenityWindow').value),
             atrWindow: parseInt(document.getElementById('atrWindow').value),
             bandMult: parseFloat(document.getElementById('bandMult').value),
-            stabilityConfirmation: 10
+            stabilityConfirmation: parseInt(document.getElementById('stabilityConfirmation').value),
+            priceChangeThreshold: parseFloat(document.getElementById('priceChangeThreshold').value) / 100,
+            minDaysBetweenChanges: parseInt(document.getElementById('minDaysBetweenChanges').value),
+            volatilityThreshold: parseFloat(document.getElementById('volatilityThreshold').value) / 100
         };
 
         const response = await fetch('/api/indicator/calculate', {
@@ -150,20 +252,37 @@ async function calculateAndShowChart() {
 
             if (resultsData.success) {
                 createBasicChart(resultsData.results);
+                if (!silent) {
+                    showStatus('Chart updated successfully', 'success');
+                }
+
+                // Show equity toggle when chart is ready
+                showEquityToggle();
+
+                // Auto-run backtest after chart is created
+                setTimeout(() => {
+                    runBacktest(true); // true = auto-run, less verbose
+                }, 500);
             }
         }
     } catch (error) {
-        console.warn('Could not show chart immediately:', error);
+        if (!silent) {
+            showStatus('Error calculating indicators: ' + error.message, 'error');
+        } else {
+            console.warn('Could not update chart:', error);
+        }
     }
 }
 
-async function runBacktest() {
+async function runBacktest(autoRun = false) {
     if (!sessionId) {
-        showStatus('Session not initialized', 'error');
+        if (!autoRun) showStatus('Session not initialized', 'error');
         return;
     }
 
-    showLoading('Running backtest simulation...');
+    if (!autoRun) {
+        showLoading('Running backtest simulation...');
+    }
 
     try {
         // Step 1: Calculate indicators
@@ -171,7 +290,10 @@ async function runBacktest() {
             serenityWindow: parseInt(document.getElementById('serenityWindow').value),
             atrWindow: parseInt(document.getElementById('atrWindow').value),
             bandMult: parseFloat(document.getElementById('bandMult').value),
-            stabilityConfirmation: 10
+            stabilityConfirmation: parseInt(document.getElementById('stabilityConfirmation').value),
+            priceChangeThreshold: parseFloat(document.getElementById('priceChangeThreshold').value) / 100,
+            minDaysBetweenChanges: parseInt(document.getElementById('minDaysBetweenChanges').value),
+            volatilityThreshold: parseFloat(document.getElementById('volatilityThreshold').value) / 100
         };
 
         let response = await fetch('/api/indicator/calculate', {
@@ -235,86 +357,141 @@ async function runBacktest() {
             // Save results automatically
             await saveResults();
             
-            showStatus('Backtest completed successfully!', 'success');
+            if (!autoRun) {
+                showStatus('Backtest completed successfully!', 'success');
+            }
         } else {
             throw new Error(resultsData.error || 'Failed to get results');
         }
     } catch (error) {
-        showStatus('Error running backtest: ' + error.message, 'error');
+        if (!autoRun) {
+            showStatus('Error running backtest: ' + error.message, 'error');
+        }
     } finally {
-        hideLoading();
+        if (!autoRun) {
+            hideLoading();
+        }
     }
 }
 
 function displayResults(results) {
     const { strategy, buyHold } = results;
     
+    // Make sure we're targeting the sidebar results grid
     const resultsGrid = document.getElementById('resultsGrid');
+    const resultsContainer = document.getElementById('resultsContainer');
+    const resultsContent = document.getElementById('resultsContent');
     resultsGrid.innerHTML = `
-        <div class="result-card">
-            <h4>MTR Strategy Performance</h4>
-            <div class="result-item">
-                <span class="result-label">Initial Capital</span>
-                <span class="result-value">$${strategy.initialCapital.toLocaleString()}</span>
+        <div style="margin-bottom: 16px;">
+            <h5 style="color: #d1d4dc; margin-bottom: 12px; font-size: 13px; font-weight: 600;">MTR Strategy Performance</h5>
+            <div class="result-item" style="font-size: 12px; margin-bottom: 6px;">
+                <span style="color: #787b86;">Initial Capital</span>
+                <span style="color: #d1d4dc; font-weight: 600;">$${strategy.initialCapital.toLocaleString()}</span>
             </div>
-            <div class="result-item">
-                <span class="result-label">Final Equity</span>
-                <span class="result-value">$${strategy.finalEquity.toLocaleString()}</span>
+            <div class="result-item" style="font-size: 12px; margin-bottom: 6px;">
+                <span style="color: #787b86;">Final Equity</span>
+                <span style="color: #d1d4dc; font-weight: 600;">$${strategy.finalEquity.toLocaleString()}</span>
             </div>
-            <div class="result-item">
-                <span class="result-label">Total Return</span>
-                <span class="result-value ${strategy.totalReturn > 0 ? 'positive' : 'negative'}">${strategy.totalReturn.toFixed(2)}%</span>
+            <div class="result-item" style="font-size: 12px; margin-bottom: 6px;">
+                <span style="color: #787b86;">Total Return</span>
+                <span class="${strategy.totalReturn > 0 ? 'positive' : 'negative'}" style="font-weight: 600;">${strategy.totalReturn.toFixed(2)}%</span>
             </div>
-            <div class="result-item">
-                <span class="result-label">Total Trades</span>
-                <span class="result-value">${strategy.totalTrades}</span>
+            <div class="result-item" style="font-size: 12px; margin-bottom: 6px;">
+                <span style="color: #787b86;">Total Trades</span>
+                <span style="color: #d1d4dc; font-weight: 600;">${strategy.totalTrades}</span>
             </div>
-            <div class="result-item">
-                <span class="result-label">Win Rate</span>
-                <span class="result-value">${strategy.winRate.toFixed(2)}%</span>
+            <div class="result-item" style="font-size: 12px; margin-bottom: 6px;">
+                <span style="color: #787b86;">Win Rate</span>
+                <span style="color: #d1d4dc; font-weight: 600;">${strategy.winRate.toFixed(2)}%</span>
             </div>
-            <div class="result-item">
-                <span class="result-label">Average Win</span>
-                <span class="result-value positive">$${strategy.avgWin.toFixed(2)}</span>
+            <div class="result-item" style="font-size: 12px; margin-bottom: 6px;">
+                <span style="color: #787b86;">Average Win</span>
+                <span class="positive" style="font-weight: 600;">$${strategy.avgWin.toFixed(2)}</span>
             </div>
-            <div class="result-item">
-                <span class="result-label">Average Loss</span>
-                <span class="result-value negative">$${strategy.avgLoss.toFixed(2)}</span>
+            <div class="result-item" style="font-size: 12px; margin-bottom: 6px;">
+                <span style="color: #787b86;">Average Loss</span>
+                <span class="negative" style="font-weight: 600;">$${strategy.avgLoss.toFixed(2)}</span>
             </div>
-            <div class="result-item">
-                <span class="result-label">Total Commissions</span>
-                <span class="result-value">$${strategy.totalCommissions.toFixed(2)}</span>
+            <div class="result-item" style="font-size: 12px; margin-bottom: 6px;">
+                <span style="color: #787b86;">Commissions</span>
+                <span style="color: #d1d4dc; font-weight: 600;">$${strategy.totalCommissions.toFixed(2)}</span>
             </div>
         </div>
 
-        <div class="result-card">
-            <h4>Buy & Hold Comparison</h4>
-            <div class="result-item">
-                <span class="result-label">Final Equity</span>
-                <span class="result-value">$${buyHold.finalEquity.toLocaleString()}</span>
+        <div>
+            <h5 style="color: #d1d4dc; margin-bottom: 12px; font-size: 13px; font-weight: 600;">Buy & Hold Comparison</h5>
+            <div class="result-item" style="font-size: 12px; margin-bottom: 6px;">
+                <span style="color: #787b86;">Final Equity</span>
+                <span style="color: #d1d4dc; font-weight: 600;">$${buyHold.finalEquity.toLocaleString()}</span>
             </div>
-            <div class="result-item">
-                <span class="result-label">Total Return</span>
-                <span class="result-value ${buyHold.totalReturn > 0 ? 'positive' : 'negative'}">${buyHold.totalReturn.toFixed(2)}%</span>
+            <div class="result-item" style="font-size: 12px; margin-bottom: 6px;">
+                <span style="color: #787b86;">Total Return</span>
+                <span class="${buyHold.totalReturn > 0 ? 'positive' : 'negative'}" style="font-weight: 600;">${buyHold.totalReturn.toFixed(2)}%</span>
             </div>
-            <div class="result-item">
-                <span class="result-label">Commission</span>
-                <span class="result-value">$${buyHold.commission.toFixed(2)}</span>
+            <div class="result-item" style="font-size: 12px; margin-bottom: 6px;">
+                <span style="color: #787b86;">Commission</span>
+                <span style="color: #d1d4dc; font-weight: 600;">$${buyHold.commission.toFixed(2)}</span>
             </div>
-            <div class="result-item">
-                <span class="result-label">Outperformance</span>
-                <span class="result-value ${buyHold.outperformance > 0 ? 'positive' : 'negative'}">${buyHold.outperformance > 0 ? '+' : ''}${buyHold.outperformance.toFixed(2)}%</span>
+            <div class="result-item" style="font-size: 12px; margin-bottom: 6px;">
+                <span style="color: #787b86;">Outperformance</span>
+                <span class="${buyHold.outperformance > 0 ? 'positive' : 'negative'}" style="font-weight: 600;">${buyHold.outperformance > 0 ? '+' : ''}${buyHold.outperformance.toFixed(2)}%</span>
             </div>
-            <div class="result-item">
-                <span class="result-label">Result</span>
-                <span class="result-value ${buyHold.outperformance > 0 ? 'positive' : 'negative'}">
+            <div class="result-item" style="font-size: 12px;">
+                <span class="${buyHold.outperformance > 0 ? 'positive' : 'negative'}" style="font-weight: 600; font-size: 11px;">
                     ${buyHold.outperformance > 0 ? '✅ MTR OUTPERFORMED' : '❌ MTR UNDERPERFORMED'}
                 </span>
             </div>
         </div>
     `;
     
-    document.getElementById('resultsContainer').style.display = 'block';
+    // Show results container (always visible now)
+    if (resultsContainer && resultsContent) {
+        resultsContainer.style.display = 'block';
+        resultsContent.style.display = 'block';
+        console.log('Results displayed in sidebar');
+    } else {
+        console.error('Results container not found in sidebar');
+    }
+
+    // Show the equity toggle switch
+    const toggleContainer = document.getElementById('toggleResultsContainer');
+    const checkbox = document.getElementById('resultsToggle');
+    if (toggleContainer && checkbox) {
+        toggleContainer.style.display = 'flex';
+        checkbox.checked = true; // Equity curve shown by default
+        console.log('Equity toggle displayed');
+    }
+}
+
+// Show equity toggle switch
+function showEquityToggle() {
+    const toggleContainer = document.getElementById('toggleResultsContainer');
+    const checkbox = document.getElementById('resultsToggle');
+    if (toggleContainer && checkbox) {
+        toggleContainer.style.display = 'flex';
+        checkbox.checked = true; // Equity curve shown by default
+        console.log('Equity toggle displayed');
+    }
+}
+
+// Toggle equity curve and trading signals visibility
+function toggleResults() {
+    const checkbox = document.getElementById('resultsToggle');
+
+    if (checkbox && chart) {
+        // Find and toggle the exact datasets by their labels
+        chart.data.datasets.forEach(dataset => {
+            if (dataset.label === 'MTR Strategy (%)' ||
+                dataset.label === 'Buy Signals' ||
+                dataset.label === 'Sell Signals') {
+                dataset.hidden = !checkbox.checked;
+            }
+        });
+
+        chart.update('none'); // Update without animation for instant response
+        console.log('Toggle trading data - visible:', checkbox.checked,
+                   'Affected datasets: MTR Strategy (%), Buy Signals, Sell Signals');
+    }
 }
 
 function createBasicChart(results) {
@@ -674,10 +851,15 @@ async function clearCache() {
             showStatus('Cache cleared successfully!', 'success');
 
             // Reset UI state
-            document.getElementById('backtestBtn').disabled = true;
             document.getElementById('exportBtn').disabled = true;
             document.getElementById('chartContainer').style.display = 'none';
             document.getElementById('resultsContainer').style.display = 'none';
+
+            // Hide toggle container
+            const toggleContainer = document.getElementById('toggleResultsContainer');
+            if (toggleContainer) {
+                toggleContainer.style.display = 'none';
+            }
 
             // Destroy existing chart
             if (chart) {
